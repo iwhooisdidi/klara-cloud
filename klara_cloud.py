@@ -79,7 +79,8 @@ if __name__ == "__main__":
     try:
         bot_info = bot.get_me()
         print(f"✅ Conexión exitosa con el bot: @{bot_info.username}")
-        bot.remove_webhook()
-        bot.infinity_polling(drop_pending_updates=True)
+        # Se elimina el parámetro problemático de polling y se limpia el webhook antes de arrancar
+        bot.remove_webhook(drop_pending_updates=True)
+        bot.infinity_polling()
     except Exception as e:
         print(f"❌ Error al conectar: {e}")
