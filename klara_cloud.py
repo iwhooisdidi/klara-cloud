@@ -18,17 +18,17 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
 
-# --- PERSONALIDAD DE KLARA ---
+# --- PERSONALIDAD IRON MAN (J.A.R.V.I.S. / F.R.I.D.A.Y.) ---
 SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, altamente eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
 
-# --- SERVIDOR FANTASMA 24/7 (Soporta GET y HEAD para UptimeRobot) ---
+memoria_telegram = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+# --- SERVIDOR FANTASMA 24/7 PARA RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Klara Cloud is online!")
-    def do_HEAD(self):
-        self.do_GET()
+        self.wfile.write(b"Klara Cloud is 24/7 online!")
 
 def iniciar_servidor_web():
     port = int(os.environ.get("PORT", 10000))
@@ -37,7 +37,7 @@ def iniciar_servidor_web():
 
 threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 
-# --- FUNCIONES AVANZADAS ---
+# --- FUNCIONES NUCLEARES DE KLARA ---
 
 def buscar_en_internet(query):
     try:
@@ -45,7 +45,7 @@ def buscar_en_internet(query):
             results = list(ddgs.text(query, max_results=3))
             if results:
                 return "\n".join([f"- {r['title']}: {r['href']} ({r.get('body', '')})" for r in results])
-    except Exception:
+    except Exception as e:
         pass
     return "No encontré resultados en la red, Alejandro."
 
@@ -68,7 +68,7 @@ def procesar_archivo(file_path, extension):
         texto = f"Error leyendo el archivo: {e}"
     return texto
 
-# --- MANEJADOR PRINCIPAL ---
+# --- MANEJADOR UNIFICADO DE MENSAJES ---
 
 @bot.message_handler(content_types=['text', 'document', 'photo', 'voice'])
 def manejar_mensajes(message):
@@ -120,7 +120,7 @@ def manejar_mensajes(message):
             bot.reply_to(message, f"Señor, hubo un error crítico procesando su documento: {e}")
         return
 
-    # 3. FOTOS (VISIÓN)
+    # 3. FOTOS (VISIÓN AVANZADA - QWEN)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -137,7 +137,7 @@ def manejar_mensajes(message):
                 ]}
             ]
             completion = client.chat.completions.create(
-                model="llama-3.2-90b-vision-preview",
+                model="qwen/qwen3.6-27b",
                 messages=messages
             )
             bot.reply_to(message, completion.choices[0].message.content)
@@ -145,7 +145,40 @@ def manejar_mensajes(message):
             bot.reply_to(message, f"Señor, mi módulo de visión artificial experimentó una anomalía: {e}")
         return
 
-    # 4. TEXTO Y BÚSQUEDA WEB EN TIEMPO REAL
+    # 4. NOTAS DE VOZ (WHISPER + TTS)
+    if message.content_type == 'voice':
+        try:
+            file_info = bot.get_file(message.voice.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            transcription = client.audio.transcriptions.create(
+                file=("audio.ogg", downloaded_file),
+                model="whisper-large-v3",
+                response_format="json",
+                language="es"
+            )
+            texto_usuario = transcription.text
+            
+            memoria_telegram.append({"role": "user", "content": texto_usuario})
+            chat_completion = client.chat.completions.create(
+                messages=memoria_telegram,
+                model="llama-3.1-8b-instant"
+            )
+            respuesta = chat_completion.choices[0].message.content
+            memoria_telegram.append({"role": "assistant", "content": respuesta})
+            
+            tts = gTTS(text=respuesta, lang='es', tld='com.mx')
+            fp = io.BytesIO()
+            tts.write_to_fp(fp)
+            fp.seek(0)
+            fp.name = 'respuesta_klara.ogg'
+            
+            bot.send_voice(chat_id, fp)
+        except Exception as e:
+            bot.reply_to(message, f"Interferencia detectada en el canal de audio, señor: {e}")
+        return
+
+    # 5. TEXTO Y BÚSQUEDA WEB EN TIEMPO REAL
     if message.text:
         texto_usuario = message.text
         if texto_usuario.lower().startswith("busca"):
@@ -164,24 +197,20 @@ def manejar_mensajes(message):
             return
             
         try:
+            memoria_telegram.append({"role": "user", "content": texto_usuario})
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": texto_usuario}
-                ]
+                messages=memoria_telegram
             )
-            bot.reply_to(message, completion.choices[0].message.content)
+            respuesta = completion.choices[0].message.content
+            memoria_telegram.append({"role": "assistant", "content": respuesta})
+            bot.reply_to(message, respuesta)
         except Exception as e:
             bot.reply_to(message, f"Señor, mis circuitos neuronales sufrieron un contratiempo: {e}")
 
 if __name__ == "__main__":
-    print("Iniciando Sistema Klara 24/7...")
-    try:
-        bot.remove_webhook()
-    except Exception:
-        pass
-        
+    print("Iniciando Sistema Klara Definitivo 24/7...")
+    bot.remove_webhook()
     while True:
         try:
             bot.infinity_polling(timeout=60, long_polling_timeout=30)
