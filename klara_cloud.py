@@ -2,11 +2,12 @@ import os
 import threading
 import base64
 import io
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from groq import Groq
 import requests
-from gtts import gTTS
+from gTTS import gTTS
 
 # --- SERVIDOR FANTASMA PARA RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -71,20 +72,17 @@ def manejar_mensajes(message):
         except Exception as e:
             bot.send_message(chat_id, f"Señor, mis redes neuronales detectan una anomalía: {e}")
 
-    # 2. SI ES FOTO (VISIÓN)
+    # 2. SI ES FOTO (VISIÓN - ANALIZA DIRECTO Y RESPONDE)
     elif message.content_type == 'photo':
-        bot.send_message(chat_id, "Analizando la imagen a través de mi escáner óptico...")
         try:
-            # Descargar imagen en máxima resolución
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             base64_image = base64.b64encode(downloaded_file).decode('utf-8')
             
-            # Mandar a la red neuronal óptica (Llama Vision)
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": [
-                    {"type": "text", "text": "Analiza esta imagen y descríbela al detalle respondiéndole a Alejandro. Muestra tu nueva personalidad inteligente y sarcástica."},
+                    {"type": "text", "text": "Analiza esta imagen y descríbela al detalle respondiéndole a Alejandro con tu personalidad sarcástica e inteligente."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]}
             ]
@@ -97,16 +95,12 @@ def manejar_mensajes(message):
         except Exception as e:
             bot.send_message(chat_id, f"Señor, mi módulo de visión artificial falló: {e}")
 
-    # 3. SI ES VOZ (ESCUCHAR Y RESPONDER CON AUDIO)
+    # 3. SI ES VOZ (TRANSCRIBE, PROCESA Y DEVUELVE AUDIO)
     elif message.content_type == 'voice':
         try:
-            bot.send_message(chat_id, "Procesando frecuencia de voz...")
-            
-            # Descargar el audio de Telegram
             file_info = bot.get_file(message.voice.file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             
-            # Transcribir el audio usando el modelo Whisper
             transcription = client.audio.transcriptions.create(
                 file=("audio.ogg", downloaded_file),
                 model="whisper-large-v3",
@@ -115,7 +109,6 @@ def manejar_mensajes(message):
             )
             texto_usuario = transcription.text
             
-            # Mandar lo que dijiste al cerebro de Klara
             memoria_telegram.append({"role": "user", "content": texto_usuario})
             chat_completion = client.chat.completions.create(
                 messages=memoria_telegram,
@@ -124,24 +117,27 @@ def manejar_mensajes(message):
             respuesta = chat_completion.choices[0].message.content
             memoria_telegram.append({"role": "assistant", "content": respuesta})
             
-            # Convertir la respuesta de texto a voz (TTS)
-            tts = gTTS(text=respuesta, lang='es', tld='com.mx') # Acento latino
+            # Sintetizar la respuesta en voz (gTTS)
+            tts = gTTS(text=respuesta, lang='es', tld='com.mx')
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             fp.seek(0)
             fp.name = 'respuesta_klara.ogg'
             
-            # Enviarte la nota de voz
             bot.send_voice(chat_id, fp)
         except Exception as e:
             bot.send_message(chat_id, f"Hubo una interferencia en el canal de audio, señor: {e}")
 
 if __name__ == "__main__":
     print("Iniciando Sistema Klara (Protocolo Iron Man)...")
-    try:
-        bot_info = bot.get_me()
-        print(f"✅ Conexión exitosa con el bot: @{bot_info.username}")
-        bot.remove_webhook()
-        bot.infinity_polling()
-    except Exception as e:
-        print(f"❌ Error al conectar: {e}")
+    bot.remove_webhook()
+    
+    # Bucle de reintento para evitar caídas por conflictos de red o despliegue
+    while True:
+        try:
+            bot_info = bot.get_me()
+            print(f"✅ Conexión exitosa con el bot: @{bot_info.username}")
+            bot.infinity_polling(timeout=60, long_polling_timeout=30)
+        except Exception as e:
+            print(f"⚠️ Alerta de conexión (reintentando en 5s): {e}")
+            time.sleep(5)
