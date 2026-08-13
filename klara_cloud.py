@@ -23,6 +23,13 @@ SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica
 
 memoria_telegram = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+def agregar_a_memoria(rol, contenido):
+    global memoria_telegram
+    memoria_telegram.append({"role": rol, "content": contenido})
+    # Mantener el System Prompt (índice 0) y máximo los últimos 6 mensajes para evitar saturar los tokens
+    if len(memoria_telegram) > 7:
+        memoria_telegram = [memoria_telegram[0]] + memoria_telegram[-6:]
+
 # --- SERVIDOR FANTASMA 24/7 PARA RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -89,7 +96,7 @@ def manejar_mensajes(message):
             bot.reply_to(message, f"Señor, fallé al crear el archivo: {e}")
             return
 
-    # 2. PROCESAMIENTO DE DOCUMENTOS (PDF, DOCX, TXT)
+    # 2. PROCESAMIENTO DE DOCUMENTOS (PDF, DOCX, TXT) - SEGURO CONTRA LÍMITE DE TOKENS
     if message.content_type == 'document':
         try:
             file_info = bot.get_file(message.document.file_id)
@@ -106,7 +113,8 @@ def manejar_mensajes(message):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
-            prompt_doc = f"El usuario Alejandro me ha enviado el documento '{file_name}' con el siguiente contenido:\n\n{texto_extraido[:15000]}\n\nAnaliza este contenido, résumelo o responde a lo que se pide con tu estilo sarcástico e inteligente."
+            # Limitamos a 3,500 caracteres (~900 tokens) para garantizar que NUNCA rebase el límite de 6000 TPM
+            prompt_doc = f"El usuario Alejandro me ha enviado el documento '{file_name}' con el siguiente contenido:\n\n{texto_extraido[:3500]}\n\nAnaliza este contenido, résumelo o responde a lo que se pide con tu estilo sarcástico e inteligente."
             
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
@@ -117,7 +125,7 @@ def manejar_mensajes(message):
             )
             bot.reply_to(message, completion.choices[0].message.content)
         except Exception as e:
-            bot.reply_to(message, f"Señor, hubo un error crítico procesando su documento: {e}")
+            bot.reply_to(message, f"Señor, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
     # 3. FOTOS (VISIÓN AVANZADA - QWEN)
@@ -159,13 +167,13 @@ def manejar_mensajes(message):
             )
             texto_usuario = transcription.text
             
-            memoria_telegram.append({"role": "user", "content": texto_usuario})
+            agregar_a_memoria("user", texto_usuario)
             chat_completion = client.chat.completions.create(
                 messages=memoria_telegram,
                 model="llama-3.1-8b-instant"
             )
             respuesta = chat_completion.choices[0].message.content
-            memoria_telegram.append({"role": "assistant", "content": respuesta})
+            agregar_a_memoria("assistant", respuesta)
             
             tts = gTTS(text=respuesta, lang='es', tld='com.mx')
             fp = io.BytesIO()
@@ -197,16 +205,16 @@ def manejar_mensajes(message):
             return
             
         try:
-            memoria_telegram.append({"role": "user", "content": texto_usuario})
+            agregar_a_memoria("user", texto_usuario)
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=memoria_telegram
             )
             respuesta = completion.choices[0].message.content
-            memoria_telegram.append({"role": "assistant", "content": respuesta})
+            agregar_a_memoria("assistant", respuesta)
             bot.reply_to(message, respuesta)
         except Exception as e:
-            bot.reply_to(message, f"Señor, mis circuitos neuronales sufrieron un contratiempo: {e}")
+            bot.reply_to(message, f"Señor, mis circuitos neuronales sufrieron un contratiempo de tasa: {e}")
 
 if __name__ == "__main__":
     print("Iniciando Sistema Klara Definitivo 24/7...")
