@@ -1,4 +1,7 @@
-pytelegrambotapi
+pyTelegrambotapi
 groq
 requests
-gTTS
+gtts
+pypdf
+python-docx
+duckduckgo-search
