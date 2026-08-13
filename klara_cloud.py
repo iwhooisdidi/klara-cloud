@@ -21,12 +21,14 @@ client = Groq(api_key=GROQ_API_KEY)
 # --- PERSONALIDAD DE KLARA ---
 SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, altamente eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
 
-# --- SERVIDOR FANTASMA 24/7 ---
+# --- SERVIDOR FANTASMA 24/7 (Soporta GET y HEAD para UptimeRobot) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Klara Cloud is online!")
+    def do_HEAD(self):
+        self.do_GET()
 
 def iniciar_servidor_web():
     port = int(os.environ.get("PORT", 10000))
@@ -43,7 +45,7 @@ def buscar_en_internet(query):
             results = list(ddgs.text(query, max_results=3))
             if results:
                 return "\n".join([f"- {r['title']}: {r['href']} ({r.get('body', '')})" for r in results])
-    except Exception as e:
+    except Exception:
         pass
     return "No encontré resultados en la red, Alejandro."
 
@@ -118,7 +120,7 @@ def manejar_mensajes(message):
             bot.reply_to(message, f"Señor, hubo un error crítico procesando su documento: {e}")
         return
 
-    # 3. FOTOS (VISIÓN ACTUALIZADA)
+    # 3. FOTOS (VISIÓN)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -175,7 +177,11 @@ def manejar_mensajes(message):
 
 if __name__ == "__main__":
     print("Iniciando Sistema Klara 24/7...")
-    bot.remove_webhook()
+    try:
+        bot.remove_webhook()
+    except Exception:
+        pass
+        
     while True:
         try:
             bot.infinity_polling(timeout=60, long_polling_timeout=30)
