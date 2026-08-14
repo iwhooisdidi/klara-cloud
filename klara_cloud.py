@@ -203,7 +203,7 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA Y ESTABLE VÍA OPENROUTER)
+    # 3. FOTOS (VISIÓN AVANZADA CON SISTEMA ANTI-CAÍDAS / FALLBACK)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -213,38 +213,54 @@ def manejar_mensajes(message):
             caption_usuario = message.caption or "Analiza esta imagen al detalle respondiéndole a Alejandro con tu personalidad sarcástica e inteligente."
             
             openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-            
             if not openrouter_key:
                 enviar_respuesta_segura(message, "Alejandro, no detecto la variable OPENROUTER_API_KEY configurada en el entorno.")
                 return
 
             headers = {
                 "Authorization": f"Bearer {openrouter_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://render.com",
+                "X-Title": "Klara AI"
             }
             
-            payload = {
-                "model": "google/gemini-2.0-flash-001",
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": [
-                        {"type": "text", "text": caption_usuario},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                    ]}
-                ]
-            }
+            # Lista priorizada de modelos de visión multimodales en OpenRouter
+            modelos_vision = [
+                "google/gemini-flash-1.5",
+                "qwen/qwen-2.5-vl-72b-instruct:free",
+                "google/gemini-2.0-flash-exp:free",
+                "meta-llama/llama-3.2-11b-vision-instruct"
+            ]
             
-            response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-            res_data = response.json()
+            respuesta_exitosa = False
             
-            if "choices" in res_data and len(res_data["choices"]) > 0:
-                respuesta = res_data["choices"][0]["message"]["content"]
-                enviar_respuesta_segura(message, respuesta)
-            elif "error" in res_data:
-                error_msg = res_data["error"].get("message", str(res_data["error"]))
-                enviar_respuesta_segura(message, f"Alejandro, el proveedor de visión reportó un inconveniente: {error_msg}")
-            else:
-                enviar_respuesta_segura(message, "Alejandro, recibí una estructura de datos no reconocida al procesar la imagen.")
+            # Prueba cada modelo en orden hasta que uno responda con éxito
+            for modelo in modelos_vision:
+                payload = {
+                    "model": modelo,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": [
+                            {"type": "text", "text": caption_usuario},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]}
+                    ]
+                }
+                
+                try:
+                    res = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=20)
+                    res_data = res.json()
+                    
+                    if "choices" in res_data and len(res_data["choices"]) > 0:
+                        respuesta = res_data["choices"][0]["message"]["content"]
+                        enviar_respuesta_segura(message, respuesta)
+                        respuesta_exitosa = True
+                        break  # Petición completada, salimos del bucle
+                except Exception:
+                    continue  # Si un modelo falla, salta de inmediato al siguiente
+            
+            if not respuesta_exitosa:
+                enviar_respuesta_segura(message, "Alejandro, los servidores de visión externa no respondieron. Por favor, reintenta en unos segundos.")
                 
         except Exception as e:
             enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión artificial experimentó una anomalía: {e}")
