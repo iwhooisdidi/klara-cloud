@@ -203,7 +203,7 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA)
+    # 3. FOTOS (VISIÓN AVANZADA Y ESTABLE VÍA OPENROUTER)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -212,22 +212,44 @@ def manejar_mensajes(message):
             
             caption_usuario = message.caption or "Analiza esta imagen al detalle respondiéndole a Alejandro con tu personalidad sarcástica e inteligente."
             
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": [
-                    {"type": "text", "text": caption_usuario},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]}
-            ]
-            completion = client.chat.completions.create(
-                model="llama-3.2-11b-vision-instruct",
-                messages=messages
-            )
-            enviar_respuesta_segura(message, completion.choices[0].message.content)
+            openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+            
+            if not openrouter_key:
+                enviar_respuesta_segura(message, "Alejandro, no detecto la variable OPENROUTER_API_KEY configurada en el entorno.")
+                return
+
+            headers = {
+                "Authorization": f"Bearer {openrouter_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "google/gemini-2.0-flash-001",
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": caption_usuario},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]}
+                ]
+            }
+            
+            response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+            res_data = response.json()
+            
+            if "choices" in res_data and len(res_data["choices"]) > 0:
+                respuesta = res_data["choices"][0]["message"]["content"]
+                enviar_respuesta_segura(message, respuesta)
+            elif "error" in res_data:
+                error_msg = res_data["error"].get("message", str(res_data["error"]))
+                enviar_respuesta_segura(message, f"Alejandro, el proveedor de visión reportó un inconveniente: {error_msg}")
+            else:
+                enviar_respuesta_segura(message, "Alejandro, recibí una estructura de datos no reconocida al procesar la imagen.")
+                
         except Exception as e:
             enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión artificial experimentó una anomalía: {e}")
         return
-
+        
     # 4. NOTAS DE VOZ (WHISPER + TTS)
     if message.content_type == 'voice':
         try:
