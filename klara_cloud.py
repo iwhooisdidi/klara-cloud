@@ -20,7 +20,7 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
 
 # --- PERSONALIDAD IRON MAN (J.A.R.V.I.S. / F.R.I.D.A.Y.) ---
-SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, altamente eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
+SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, highly eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
 
 memoria_telegram = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -109,16 +109,22 @@ def manejar_mensajes(message):
     # Verificar si la PC de Alejandro se ha reportado en los últimos 15 segundos
     pc_encendida = (time.time() - pc_ultima_conexion) < 15
 
-    # Detección de órdenes que requieren ejecutarse en la pantalla/sistema de la PC
-    es_orden_pc = any(k in texto.lower() for k in ["youtube", "video", "abre", "volumen", "pantalla", "minimiza"])
+    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA (AMPLIADA Y DINÁMICA)
+    verbos_accion = ["abre", "abrir", "ejecuta", "ejecutar", "cierra", "cerrar", "pon", "poner", "reproduce", "sube", "baja", "inicia", "iniciar", "minimiza", "quita", "configura"]
+    menciones_pc = ["en la pc", "en la computadora", "en mi pc", "en el ordenador", "computadora"]
+
+    texto_lower = texto.lower()
+    
+    # Se considera orden de PC si incluye palabras clave de PC o inicia/contiene un verbo de acción directa
+    es_orden_pc = any(m in texto_lower for m in menciones_pc) or any(v in texto_lower for v in verbos_accion)
 
     if es_orden_pc and message.content_type == 'text':
         if pc_encendida:
             cola_comandos_pc.append(texto)
-            bot.reply_to(message, "Enviando instrucción a su computadora, Alejandro...")
+            bot.reply_to(message, "Ejecutando la acción en su computadora, Alejandro...")
             return
         else:
-            bot.reply_to(message, "Alejandro, su computadora está apagada en este momento. No puedo ejecutar la acción en pantalla.")
+            bot.reply_to(message, "Alejandro, su computadora está apagada en este momento. No puedo ejecutar acciones en pantalla.")
             return
 
     # 1. CREACIÓN DE ARCHIVOS
@@ -167,7 +173,7 @@ def manejar_mensajes(message):
             bot.reply_to(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA - QWEN)
+    # 3. FOTOS (VISIÓN AVANZADA CON LLAMA 3.2 VISION EN GROQ)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -184,7 +190,7 @@ def manejar_mensajes(message):
                 ]}
             ]
             completion = client.chat.completions.create(
-                model="qwen/qwen3.6-27b",
+                model="llama-3.2-11b-vision-preview",
                 messages=messages
             )
             bot.reply_to(message, completion.choices[0].message.content)
