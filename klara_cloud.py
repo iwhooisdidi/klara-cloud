@@ -38,6 +38,20 @@ def agregar_a_memoria(chat_id, rol, contenido):
     if len(mem) > 7:
         memorias_chat[chat_id] = [mem[0]] + mem[-6:]
 
+# --- FUNCIÓN PARA EVITAR EL ERROR 400 "MESSAGE IS TOO LONG" DE TELEGRAM ---
+def enviar_respuesta_segura(message, texto):
+    MAX_LEN = 4000
+    if not texto:
+        return
+    if len(texto) <= MAX_LEN:
+        bot.reply_to(message, texto)
+    else:
+        # Envía el primer bloque respondiendo al mensaje original
+        bot.reply_to(message, texto[:MAX_LEN])
+        # Envía los bloques restantes como nuevos mensajes en secuencia
+        for i in range(MAX_LEN, len(texto), MAX_LEN):
+            bot.send_message(message.chat.id, texto[i:i+MAX_LEN])
+
 # --- ESTADO DE LA PC Y PUENTE DE COMUNICACIÓN ---
 pc_ultima_conexion = 0
 cola_comandos_pc = []
@@ -121,21 +135,20 @@ def manejar_mensajes(message):
     # Verificar si la PC se ha reportado en los últimos 15 segundos
     pc_encendida = (time.time() - pc_ultima_conexion) < 15
 
-    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA (LÓGICA MEJORADA)
+    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA
     texto_lower = texto.lower()
     menciones_pc = ["en la pc", "en la computadora", "en mi pc", "en el ordenador", "computadora"]
     
-    # Se requiere que mencione explícitamente la computadora o use un prefijo claro
     es_orden_pc = any(m in texto_lower for m in menciones_pc) or texto_lower.startswith("/pc")
 
     if es_orden_pc and message.content_type == 'text':
         if pc_encendida:
             comando_limpio = texto.replace("/pc", "").strip()
             cola_comandos_pc.append(comando_limpio)
-            bot.reply_to(message, "Ejecutando la acción en su computadora, Alejandro...")
+            enviar_respuesta_segura(message, "Ejecutando la acción en su computadora, Alejandro...")
             return
         else:
-            bot.reply_to(message, "Alejandro, su computadora está apagada en este momento. No puedo ejecutar acciones en pantalla.")
+            enviar_respuesta_segura(message, "Alejandro, su computadora está apagada en este momento. No puedo ejecutar acciones en pantalla.")
             return
 
     # 1. CREACIÓN DE ARCHIVOS
@@ -156,7 +169,7 @@ def manejar_mensajes(message):
                 os.remove(nombre)
             return
         except Exception as e:
-            bot.reply_to(message, f"Alejandro, fallé al crear el archivo: {e}")
+            enviar_respuesta_segura(message, f"Alejandro, fallé al crear el archivo: {e}")
             return
 
     # 2. PROCESAMIENTO DE DOCUMENTOS (PDF, DOCX, TXT)
@@ -185,12 +198,12 @@ def manejar_mensajes(message):
                     {"role": "user", "content": prompt_doc}
                 ]
             )
-            bot.reply_to(message, completion.choices[0].message.content)
+            enviar_respuesta_segura(message, completion.choices[0].message.content)
         except Exception as e:
-            bot.reply_to(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
+            enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA CON QWEN 3.6 27B EN GROQ)
+    # 3. FOTOS (VISIÓN AVANZADA)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -207,12 +220,12 @@ def manejar_mensajes(message):
                 ]}
             ]
             completion = client.chat.completions.create(
-                model="qwen/qwen3.6-27b",  # Model ID activo y soportado en Groq
+                model="llama-3.2-11b-vision-instruct",
                 messages=messages
             )
-            bot.reply_to(message, completion.choices[0].message.content)
+            enviar_respuesta_segura(message, completion.choices[0].message.content)
         except Exception as e:
-            bot.reply_to(message, f"Alejandro, mi módulo de visión artificial experimentó una anomalía: {e}")
+            enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión artificial experimentó una anomalía: {e}")
         return
 
     # 4. NOTAS DE VOZ (WHISPER + TTS)
@@ -245,7 +258,7 @@ def manejar_mensajes(message):
             
             bot.send_voice(chat_id, fp)
         except Exception as e:
-            bot.reply_to(message, f"Interferencia detectada en el canal de audio, Alejandro: {e}")
+            enviar_respuesta_segura(message, f"Interferencia detectada en el canal de audio, Alejandro: {e}")
         return
 
     # 5. TEXTO Y BÚSQUEDA WEB EN TIEMPO REAL
@@ -263,20 +276,20 @@ def manejar_mensajes(message):
                     {"role": "user", "content": prompt_busqueda}
                 ]
             )
-            bot.reply_to(message, completion.choices[0].message.content)
+            enviar_respuesta_segura(message, completion.choices[0].message.content)
             return
             
         try:
             agregar_a_memoria(chat_id, "user", texto_usuario)
             completion = client.chat.completions.create(
-                model="llama-3.2-11b-vision-instruct",
+                model="llama-3.1-8b-instant",
                 messages=obtener_memoria(chat_id)
             )
             respuesta = completion.choices[0].message.content
             agregar_a_memoria(chat_id, "assistant", respuesta)
-            bot.reply_to(message, respuesta)
+            enviar_respuesta_segura(message, respuesta)
         except Exception as e:
-            bot.reply_to(message, f"Alejandro, mis circuitos neuronales sufrieron un contratiempo: {e}")
+            enviar_respuesta_segura(message, f"Alejandro, mis circuitos neuronales sufrieron un contratiempo: {e}")
 
 if __name__ == "__main__":
     print("Iniciando Sistema Klara Definitivo 24/7 en Render...")
