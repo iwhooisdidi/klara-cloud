@@ -136,7 +136,7 @@ def manejar_mensajes(message):
     # Verificar si la PC se ha reportado en los últimos 15 segundos
     pc_encendida = (time.time() - pc_ultima_conexion) < 15
 
-    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA
+    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA (MOTOR DE AUTONOMÍA AVANZADA)
     texto_lower = texto.lower()
     menciones_pc = ["en la pc", "en la computadora", "en mi pc", "en el ordenador", "computadora"]
     
@@ -145,13 +145,44 @@ def manejar_mensajes(message):
     if es_orden_pc and message.content_type == 'text':
         if pc_encendida:
             comando_limpio = texto.replace("/pc", "").strip()
-            cola_comandos_pc.append(comando_limpio)
-            enviar_respuesta_segura(message, "Ejecutando la acción en su computadora, Alejandro...")
+            enviar_respuesta_segura(message, "Generando inyección de código para ejecución dinámica en su sistema, Alejandro...")
+            
+            # PROMPT MAESTRO DE CONTROL DE WINDOWS
+            prompt_codigo = f"""
+            Eres el motor de ejecución de la computadora Windows de Alejandro.
+            El usuario te ha ordenado: '{comando_limpio}'
+            
+            Tu objetivo es generar ÚNICA Y EXCLUSIVAMENTE código Python válido que cumpla esta orden.
+            Librerías disponibles en la PC de Alejandro: pyautogui, webbrowser, os, time.
+            
+            REGLAS ESTRICTAS:
+            1. NO uses Markdown. NO escribas ```python. NO expliques nada. Solo devuelve el código.
+            2. Usa 'time.sleep()' generosamente (2 o 3 segundos) después de abrir programas o webs para dar tiempo a que carguen antes de escribir o hacer clic.
+            3. Para abrir webs usa: webbrowser.open('URL')
+            4. Para buscar en youtube usa: webbrowser.open('[https://www.youtube.com/results?search_query=TERMINO](https://www.youtube.com/results?search_query=TERMINO)')
+            5. Para simular el teclado usa: pyautogui.write('texto', interval=0.1) y pyautogui.press('enter')
+            6. Para comandos de Windows usa: os.system('comando')
+            """
+
+            try:
+                # Usamos Llama para traducir la orden a Python en tiempo real
+                completion_pc = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt_codigo}]
+                )
+                
+                # Limpiar el código por si la IA añade formato
+                codigo_generado = completion_pc.choices[0].message.content
+                codigo_generado = codigo_generado.replace("```python", "").replace("```", "").strip()
+                
+                # Enviar a la PC
+                cola_comandos_pc.append(f"EXEC:{codigo_generado}")
+            except Exception as e:
+                enviar_respuesta_segura(message, f"Fallo en el compilador neuronal: {e}")
             return
         else:
-            enviar_respuesta_segura(message, "Alejandro, su computadora está apagada en este momento. No puedo ejecutar acciones en pantalla.")
+            enviar_respuesta_segura(message, "Alejandro, su computadora no ha emitido señal de pulso en los últimos 15 segundos. Enciéndala y corra el script local primero.")
             return
-
     # 1. CREACIÓN DE ARCHIVOS
     if message.text and message.text.lower().startswith("crea un archivo"):
         try:
