@@ -12,7 +12,7 @@ from gtts import gTTS
 from pypdf import PdfReader
 from docx import Document
 from duckduckgo_search import DDGS
-from PIL import Image
+from PIL import Image  # Módulo para compresión de imágenes
 
 # --- CONFIGURACIÓN DE CREDENCIALES ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -180,116 +180,201 @@ def manejar_mensajes(message):
                 codigo_generado = codigo_generado.replace("```python", "").replace("```", "").strip()
                 
                 cola_comandos_pc.append(f"EXEC:{codigo_generado}")
-                enviar_respuesta_segura(message, "Protocolo enviado a tu estación de trabajo. Ejecutando comando...")
             except Exception as e:
-                enviar_respuesta_segura(message, f"Error generando el código de automatización: {e}")
+                enviar_respuesta_segura(message, f"Error en el módulo de compilación: {e}")
+            return
         else:
-            enviar_respuesta_segura(message, "Tu computadora está offline o desconectada del puente de control, Alejandro.")
-        return
-
-    # PROCESAMIENTO MULTIMODAL (VOZ, FOTO, DOCUMENTO, TEXTO)
-    es_voz = False
-    
-    if message.content_type == 'voice':
-        es_voz = True
-        try:
-            file_info = bot.get_file(message.voice.file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            
-            # Transcripción mediante Whisper en Groq
-            transcription = client.audio.transcriptions.create(
-                file=("voice.ogg", downloaded_file),
-                model="whisper-large-v3",
-                response_format="text"
-            )
-            texto = str(transcription).strip()
-        except Exception as e:
-            enviar_respuesta_segura(message, f"Error procesando nota de voz: {e}")
+            enviar_respuesta_segura(message, "Alejandro, la computadora no reporta señal activa. Inicie el script local en Windows para continuar.")
             return
 
-    elif message.content_type == 'document':
+    # 1. CREACIÓN DE ARCHIVOS
+    if message.text and message.text.lower().startswith("crea un archivo"):
+        try:
+            partes = message.text.split("con")
+            nombre = partes[0].lower().replace("crea un archivo llamado", "").replace("crea un archivo", "").strip()
+            contenido = partes[1].strip() if len(partes) > 1 else ""
+            if not nombre: nombre = "documento_klara.txt"
+            
+            with open(nombre, "w", encoding="utf-8") as f: 
+                f.write(contenido)
+            
+            with open(nombre, 'rb') as doc_f:
+                bot.send_document(chat_id, doc_f, caption="Aquí tiene su archivo solicitado, Alejandro.")
+            
+            if os.path.exists(nombre):
+                os.remove(nombre)
+            return
+        except Exception as e:
+            enviar_respuesta_segura(message, f"Alejandro, fallé al crear el archivo: {e}")
+            return
+
+    # 2. PROCESAMIENTO DE DOCUMENTOS (PDF, DOCX, TXT)
+    if message.content_type == 'document':
         try:
             file_info = bot.get_file(message.document.file_id)
-            file_ext = os.path.splitext(file_info.file_path)[1].lower()
             downloaded_file = bot.download_file(file_info.file_path)
+            file_name = message.document.file_name or "archivo.pdf"
+            ext = os.path.splitext(file_name)[1].lower()
             
-            temp_path = f"temp_{message.document.file_id}{file_ext}"
+            temp_path = f"temp_{chat_id}{ext}"
             with open(temp_path, "wb") as f:
                 f.write(downloaded_file)
             
-            contenido_doc = procesar_archivo(temp_path, file_ext)
+            texto_extraido = procesar_archivo(temp_path, ext)
+            
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-                
-            texto = f"El usuario adjuntó un archivo ({message.document.file_name}). Contenido:\n{contenido_doc}\nMensaje adicional: {texto}"
-        except Exception as e:
-            enviar_respuesta_segura(message, f"Error procesando documento: {e}")
-            return
 
-    elif message.content_type == 'photo':
+            prompt_doc = f"El usuario Alejandro me ha enviado el documento '{file_name}' con el siguiente contenido:\n\n{texto_extraido[:3500]}\n\nAnaliza este contenido, résumelo o responde a lo que se pide con tu estilo sarcástico e inteligente."
+            
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt_doc}
+                ]
+            )
+            enviar_respuesta_segura(message, completion.choices[0].message.content)
+        except Exception as e:
+            enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
+        return
+
+    # 3. FOTOS (VISIÓN AVANZADA CORREGIDA Y DIRECTA)
+    if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             
-            # Compresión de la imagen
-            img = Image.open(io.BytesIO(downloaded_file))
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            img.thumbnail((1024, 1024))
+            # Reducción y compresión optimizada
+            image = Image.open(io.BytesIO(downloaded_file))
+            image.thumbnail((1024, 1024))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+                
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=80)
+            base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
             
-            buffered = io.BytesIO()
-            img.save(buffered, format="JPEG", quality=85)
-            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            caption_usuario = message.caption or "Analiza esta imagen al detalle respondiéndole a Alejandro con tu personalidad sarcástica e inteligente."
             
-            # Análisis visual mediante Llama 3.2 Vision
-            vision_response = client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Describe con precisión esta imagen y responde a lo siguiente si aplica: " + (texto or "Analiza el contenido de la imagen.")},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
-                    ]
-                }]
-            )
-            analisis_imagen = vision_response.choices[0].message.content
-            texto = f"[Análisis de imagen enviada]: {analisis_imagen}\nComentario de Alejandro: {texto}"
+            gemini_key = os.environ.get("GEMINI_API_KEY")
+            if not gemini_key:
+                enviar_respuesta_segura(message, "Alejandro, falta la variable GEMINI_API_KEY configurada en Render.")
+                return
+
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": f"{SYSTEM_PROMPT}\n\nInstrucción de Alejandro: {caption_usuario}"},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": base64_image
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            # Modelos estables de Google Gemini para visión ordenados por velocidad
+            modelos_a_probar = [
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-latest"
+            ]
+
+            respuesta_exitosa = False
+            ultimo_reporte = ""
+
+            for modelo in modelos_a_probar:
+                url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){modelo}:generateContent?key={gemini_key}"
+                
+                try:
+                    res = requests.post(url, json=payload, timeout=20)
+                    res_data = res.json()
+                    
+                    if "candidates" in res_data and len(res_data["candidates"]) > 0:
+                        respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                        enviar_respuesta_segura(message, respuesta)
+                        respuesta_exitosa = True
+                        break
+                    elif "error" in res_data:
+                        ultimo_reporte = res_data["error"].get("message", str(res_data["error"]))
+                except Exception as req_err:
+                    ultimo_reporte = str(req_err)
+                    continue
+
+            if not respuesta_exitosa:
+                enviar_respuesta_segura(message, f"Alejandro, mi sensor óptico falló al conectar con la API: {ultimo_reporte}")
+                
         except Exception as e:
-            enviar_respuesta_segura(message, f"Error analizando la imagen: {e}")
+            enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó una anomalía: {e}")
+        return
+
+    # 4. NOTAS DE VOZ (WHISPER + TTS)
+    if message.content_type == 'voice':
+        try:
+            file_info = bot.get_file(message.voice.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            transcription = client.audio.transcriptions.create(
+                file=("audio.ogg", downloaded_file),
+                model="whisper-large-v3",
+                response_format="json",
+                language="es"
+            )
+            texto_usuario = transcription.text
+            
+            agregar_a_memoria(chat_id, "user", texto_usuario)
+            chat_completion = client.chat.completions.create(
+                messages=obtener_memoria(chat_id),
+                model="llama-3.1-8b-instant"
+            )
+            respuesta = chat_completion.choices[0].message.content
+            agregar_a_memoria(chat_id, "assistant", respuesta)
+            
+            tts = gTTS(text=respuesta, lang='es', tld='com.mx')
+            fp = io.BytesIO()
+            tts.write_to_fp(fp)
+            fp.seek(0)
+            fp.name = 'respuesta_klara.ogg'
+            
+            bot.send_voice(chat_id, fp)
+        except Exception as e:
+            enviar_respuesta_segura(message, f"Interferencia detectada en el canal de audio, Alejandro: {e}")
+        return
+
+    # 5. TEXTO Y BÚSQUEDA WEB EN TIEMPO REAL
+    if message.text:
+        texto_usuario = message.text
+        if texto_usuario.lower().startswith("busca"):
+            query = texto_usuario.replace("busca", "").strip()
+            resultado = buscar_en_internet(query)
+            
+            prompt_busqueda = f"Alejandro pidió buscar en internet '{query}'. Estos son los resultados:\n{resultado}\nResponde a Alejandro con tu estilo característico."
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt_busqueda}
+                ]
+            )
+            enviar_respuesta_segura(message, completion.choices[0].message.content)
             return
 
-    # EVALUACIÓN DE BÚSQUEDA WEB SI LA CONSULTA REQUIERE INFORMACIÓN ACTUALIZADA
-    if any(k in texto.lower() for k in ["busca", "investiga", "noticias", "quién es", "qué es", "precio"]):
-        info_web = buscar_en_internet(texto)
-        texto += f"\n\n[Información obtenida de Internet]:\n{info_web}"
-
-    # RESPUESTA PRINCIPAL DE KLARA MEDIANTE GROQ
-    agregar_a_memoria(chat_id, "user", texto)
-    
-    try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=obtener_memoria(chat_id),
-            temperature=0.7,
-            max_tokens=1000
-        )
-        
-        respuesta = completion.choices[0].message.content
-        agregar_a_memoria(chat_id, "assistant", respuesta)
-
-        if es_voz:
-            # Convertir la respuesta a audio si el usuario se comunicó por nota de voz
-            tts = gTTS(text=respuesta, lang='es', tld='com.mx')
-            voice_io = io.BytesIO()
-            tts.write_to_fp(voice_io)
-            voice_io.seek(0)
-            bot.send_voice(chat_id, voice_io, reply_to_message_id=message.message_id)
-        else:
+        # Respuesta general con memoria conversacional
+        agregar_a_memoria(chat_id, "user", texto_usuario)
+        try:
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=obtener_memoria(chat_id)
+            )
+            respuesta = completion.choices[0].message.content
+            agregar_a_memoria(chat_id, "assistant", respuesta)
             enviar_respuesta_segura(message, respuesta)
+        except Exception as e:
+            enviar_respuesta_segura(message, f"Error en mi núcleo conversacional, Alejandro: {e}")
 
-    except Exception as e:
-        enviar_respuesta_segura(message, f"Error de comunicación interna: {e}")
-
-# --- INICIO DEL BOT ---
-if __name__ == "__main__":
-    bot.infinity_polling()
+bot.polling(non_stop=True)
