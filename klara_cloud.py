@@ -136,7 +136,7 @@ def manejar_mensajes(message):
     # Verificar si la PC se ha reportado en los últimos 15 segundos
     pc_encendida = (time.time() - pc_ultima_conexion) < 15
 
-    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA (MOTOR DE AUTONOMÍA AVANZADA)
+    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA (MOTOR DE AUTONOMÍA AVANZADA CON RAZONAMIENTO FLEXIBLE)
     texto_lower = texto.lower()
     menciones_pc = ["en la pc", "en la computadora", "en mi pc", "en el ordenador", "computadora"]
     
@@ -145,43 +145,47 @@ def manejar_mensajes(message):
     if es_orden_pc and message.content_type == 'text':
         if pc_encendida:
             comando_limpio = texto.replace("/pc", "").strip()
-            enviar_respuesta_segura(message, "Generando inyección de código para ejecución dinámica en su sistema, Alejandro...")
+            enviar_respuesta_segura(message, "Analizando entorno del sistema y generando protocolo de ejecución, Alejandro...")
             
-            # PROMPT MAESTRO DE CONTROL DE WINDOWS
+            # PROMPT MAESTRO CON LÓGICA MULTI-RUTA
             prompt_codigo = f"""
-            Eres el motor de ejecución de la computadora Windows de Alejandro.
-            El usuario te ha ordenado: '{comando_limpio}'
+            Eres el motor de ejecución autónomo para Windows de Alejandro.
+            El usuario solicitó: '{comando_limpio}'
             
-            Tu objetivo es generar ÚNICA Y EXCLUSIVAMENTE código Python válido que cumpla esta orden.
-            Librerías disponibles en la PC de Alejandro: pyautogui, webbrowser, os, time.
+            Tu objetivo es escribir ÚNICA Y EXCLUSIVAMENTE código Python ejecutable que cumpla la orden de forma robusta.
             
-            REGLAS ESTRICTAS:
-            1. NO uses Markdown. NO escribas ```python. NO expliques nada. Solo devuelve el código.
-            2. Usa 'time.sleep()' generosamente (2 o 3 segundos) después de abrir programas o webs para dar tiempo a que carguen antes de escribir o hacer clic.
-            3. Para abrir webs usa: webbrowser.open('URL')
-            4. Para buscar en youtube usa: webbrowser.open('[https://www.youtube.com/results?search_query=TERMINO](https://www.youtube.com/results?search_query=TERMINO)')
-            5. Para simular el teclado usa: pyautogui.write('texto', interval=0.1) y pyautogui.press('enter')
-            6. Para comandos de Windows usa: os.system('comando')
+            REGLAS DE RAZONAMIENTO MULTI-RUTA:
+            1. CLASIFICACIÓN DE SERVICIOS:
+               - Plataformas Web (YouTube, Canva, Pinterest, Google Meet, Gmail, Google): NO BUSQUES archivos .exe locales. Usa 'webbrowser.open()' directamente con la URL de la plataforma o la consulta específica.
+               - Aplicaciones Nativas (Roblox, Spotify, Discord, VS Code, Bloc de Notas): Intenta abrir el acceso directo o protocolo URI (ej. 'roblox://' o usando os.system).
+            
+            2. NAVEGACIÓN Y REPRODUCCIÓN EN YOUTUBE:
+               - Para buscar y reproducir un video en YouTube:
+                 a) Abre la búsqueda directa: webbrowser.open('https://www.youtube.com/results?search_query=TERMINO_DE_BUSQUEDA')
+                 b) Espera 4 a 5 segundos con time.sleep(5)
+                 c) Usa pyautogui.press('tab', presses=4, interval=0.2) o pyautogui.click() en las coordenadas aproximadas del primer resultado, seguido de pyautogui.press('enter').
+
+            3. ESTRUCTURA Y SINTAXIS:
+               - NO uses Markdown (NO ```python). Solo código Python puro.
+               - Incluye 'import webbrowser, pyautogui, time, os' al inicio del bloque si es necesario.
+               - Incluye tiempos de espera razonables ('time.sleep(3)') entre acciones para permitir la carga de páginas web o programas.
             """
 
             try:
-                # Usamos Llama para traducir la orden a Python en tiempo real
                 completion_pc = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "user", "content": prompt_codigo}]
                 )
                 
-                # Limpiar el código por si la IA añade formato
                 codigo_generado = completion_pc.choices[0].message.content
                 codigo_generado = codigo_generado.replace("```python", "").replace("```", "").strip()
                 
-                # Enviar a la PC
                 cola_comandos_pc.append(f"EXEC:{codigo_generado}")
             except Exception as e:
-                enviar_respuesta_segura(message, f"Fallo en el compilador neuronal: {e}")
+                enviar_respuesta_segura(message, f"Error en el módulo de compilación: {e}")
             return
         else:
-            enviar_respuesta_segura(message, "Alejandro, su computadora no ha emitido señal de pulso en los últimos 15 segundos. Enciéndala y corra el script local primero.")
+            enviar_respuesta_segura(message, "Alejandro, la computadora no reporta señal activa. Inicie el script local en Windows para continuar.")
             return
     # 1. CREACIÓN DE ARCHIVOS
     if message.text and message.text.lower().startswith("crea un archivo"):
