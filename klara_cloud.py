@@ -12,6 +12,7 @@ from gtts import gTTS
 from pypdf import PdfReader
 from docx import Document
 from duckduckgo_search import DDGS
+from PIL import Image  # IMPORTANTE: Módulo para compresión de imágenes
 
 # --- CONFIGURACIÓN DE CREDENCIALES ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -21,7 +22,7 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
 
 # --- PERSONALIDAD IRON MAN (J.A.R.V.I.S. / F.R.I.D.A.Y.) ---
-SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, altamente eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
+SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, highly eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
 
 # Memoria individualizada por Chat ID
 memorias_chat = {}
@@ -203,12 +204,21 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA CON AUTODESCUBRIMIENTO DINÁMICO)
+    # 3. FOTOS (VISIÓN AVANZADA OPTIMIZADA CON COMPRESIÓN Y DESCUBRIMIENTO DINÁMICO)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
-            base64_image = base64.b64encode(downloaded_file).decode('utf-8')
+            
+            # --- REDUCCIÓN Y COMPRESIÓN DE IMAGEN PARA EVITAR TIMEOUTS ---
+            image = Image.open(io.BytesIO(downloaded_file))
+            image.thumbnail((1024, 1024))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+                
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=80)
+            base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
             
             caption_usuario = message.caption or "Analiza esta imagen al detalle respondiéndole a Alejandro con tu personalidad sarcástica e inteligente."
             
@@ -233,53 +243,56 @@ def manejar_mensajes(message):
                 ]
             }
 
-            # 1. Consulta dinámica a Google para obtener los modelos verdaderamente activos
+            # 1. Consulta dinámica a Google para obtener los modelos activos
             modelos_validos = []
             try:
-                list_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}", timeout=10)
+                list_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}", timeout=8)
                 list_data = list_res.json()
                 if "models" in list_data:
                     for m in list_data["models"]:
                         methods = m.get("supportedGenerationMethods", [])
                         m_name = m.get("name", "")
-                        # Filtrar modelos Gemini que soportan generación de contenido
                         if "generateContent" in methods and "gemini" in m_name.lower():
                             modelos_validos.append(m_name)
             except Exception:
                 pass
 
-            # Respaldos por si la lista dinámica no responde
+            # Respaldos por si la consulta dinámica falla
             if not modelos_validos:
                 modelos_validos = [
+                    "models/gemini-2.0-flash",
+                    "models/gemini-1.5-flash",
                     "models/gemini-1.5-flash-latest",
-                    "models/gemini-1.5-flash-002",
                     "models/gemini-2.0-flash-exp"
                 ]
 
             respuesta_exitosa = False
             ultimo_reporte = ""
 
-            # 2. Probar los modelos activos devueltos por Google
+            # 2. Probar los modelos activos con timeout por intento
             for path_modelo in modelos_validos:
-                # Asegurar formato correcto de la URL
                 if not path_modelo.startswith("models/"):
                     path_modelo = f"models/{path_modelo}"
                     
                 url = f"https://generativelanguage.googleapis.com/v1beta/{path_modelo}:generateContent?key={gemini_key}"
                 
-                res = requests.post(url, json=payload, timeout=30)
-                res_data = res.json()
-                
-                if "candidates" in res_data and len(res_data["candidates"]) > 0:
-                    respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                    enviar_respuesta_segura(message, respuesta)
-                    respuesta_exitosa = True
-                    break
-                elif "error" in res_data:
-                    ultimo_reporte = res_data["error"].get("message", str(res_data["error"]))
+                try:
+                    res = requests.post(url, json=payload, timeout=15)
+                    res_data = res.json()
+                    
+                    if "candidates" in res_data and len(res_data["candidates"]) > 0:
+                        respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                        enviar_respuesta_segura(message, respuesta)
+                        respuesta_exitosa = True
+                        break
+                    elif "error" in res_data:
+                        ultimo_reporte = res_data["error"].get("message", str(res_data["error"]))
+                except Exception as req_err:
+                    ultimo_reporte = str(req_err)
+                    continue
 
             if not respuesta_exitosa:
-                enviar_respuesta_segura(message, f"Alejandro, la API de Google reportó: {ultimo_reporte}")
+                enviar_respuesta_segura(message, f"Alejandro, la API de Google reportó el siguiente inconveniente: {ultimo_reporte}")
                 
         except Exception as e:
             enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó una anomalía: {e}")
