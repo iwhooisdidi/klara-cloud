@@ -190,7 +190,7 @@ def manejar_mensajes(message):
             bot.reply_to(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA)
+    # 3. FOTOS (VISIÓN AVANZADA CON QWEN 3.6 27B EN GROQ)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -207,7 +207,7 @@ def manejar_mensajes(message):
                 ]}
             ]
             completion = client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
+                model="qwen/qwen3.6-27b",  # Model ID activo y soportado en Groq
                 messages=messages
             )
             bot.reply_to(message, completion.choices[0].message.content)
