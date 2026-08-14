@@ -269,7 +269,7 @@ def manejar_mensajes(message):
         try:
             agregar_a_memoria(chat_id, "user", texto_usuario)
             completion = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="llama-3.2-11b-vision-instruct",
                 messages=obtener_memoria(chat_id)
             )
             respuesta = completion.choices[0].message.content
