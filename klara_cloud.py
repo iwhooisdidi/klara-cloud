@@ -14,28 +14,40 @@ from docx import Document
 from duckduckgo_search import DDGS
 
 # --- CONFIGURACIÓN DE CREDENCIALES ---
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8675385836:AAGo1sEzmJo-Gub8N4QDjXOWv63hJANBr7U")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
 
 # --- PERSONALIDAD IRON MAN (J.A.R.V.I.S. / F.R.I.D.A.Y.) ---
-SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, highly eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
+SYSTEM_PROMPT = """Eres Klara, una Inteligencia Artificial avanzada, sarcástica, altamente eficiente y brillante, al estilo de J.A.R.V.I.S. o F.R.I.D.A.Y. de Iron Man. Tu creador y jefe es Alejandro. Háblale con una mezcla de respeto y sarcasmo elegante. Nunca seas aburrida o genérica. Tus respuestas deben ser directas, ingeniosas y demostrar superioridad tecnológica, pero siempre resolviendo la duda o tarea que se te asigne."""
 
-memoria_telegram = [{"role": "system", "content": SYSTEM_PROMPT}]
+# Memoria individualizada por Chat ID
+memorias_chat = {}
 
-def agregar_a_memoria(rol, contenido):
-    global memoria_telegram
-    memoria_telegram.append({"role": rol, "content": contenido})
-    # Mantener el System Prompt (índice 0) y máximo los últimos 6 mensajes para evitar saturar tokens
-    if len(memoria_telegram) > 7:
-        memoria_telegram = [memoria_telegram[0]] + memoria_telegram[-6:]
+def obtener_memoria(chat_id):
+    if chat_id not in memorias_chat:
+        memorias_chat[chat_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    return memorias_chat[chat_id]
+
+def agregar_a_memoria(chat_id, rol, contenido):
+    mem = obtener_memoria(chat_id)
+    mem.append({"role": rol, "content": contenido})
+    # Mantener el System Prompt (0) y máximo los últimos 6 mensajes
+    if len(mem) > 7:
+        memorias_chat[chat_id] = [mem[0]] + mem[-6:]
 
 # --- ESTADO DE LA PC Y PUENTE DE COMUNICACIÓN ---
 pc_ultima_conexion = 0
 cola_comandos_pc = []
 
 class CloudBridgeHandler(BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        # Solución al error 501 de Render
+        self.send_response(200)
+        self.end_headers()
+
     def do_GET(self):
         global pc_ultima_conexion, cola_comandos_pc
         
@@ -106,21 +118,20 @@ def manejar_mensajes(message):
     chat_id = message.chat.id
     texto = message.text or message.caption or ""
 
-    # Verificar si la PC de Alejandro se ha reportado en los últimos 15 segundos
+    # Verificar si la PC se ha reportado en los últimos 15 segundos
     pc_encendida = (time.time() - pc_ultima_conexion) < 15
 
-    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA (AMPLIADA Y DINÁMICA)
-    verbos_accion = ["abre", "abrir", "ejecuta", "ejecutar", "cierra", "cerrar", "pon", "poner", "reproduce", "sube", "baja", "inicia", "iniciar", "minimiza", "quita", "configura"]
-    menciones_pc = ["en la pc", "en la computadora", "en mi pc", "en el ordenador", "computadora"]
-
+    # DETECCIÓN DE ÓRDENES PARA LA COMPUTADORA (LÓGICA MEJORADA)
     texto_lower = texto.lower()
+    menciones_pc = ["en la pc", "en la computadora", "en mi pc", "en el ordenador", "computadora"]
     
-    # Se considera orden de PC si incluye palabras clave de PC o inicia/contiene un verbo de acción directa
-    es_orden_pc = any(m in texto_lower for m in menciones_pc) or any(v in texto_lower for v in verbos_accion)
+    # Se requiere que mencione explícitamente la computadora o use un prefijo claro
+    es_orden_pc = any(m in texto_lower for m in menciones_pc) or texto_lower.startswith("/pc")
 
     if es_orden_pc and message.content_type == 'text':
         if pc_encendida:
-            cola_comandos_pc.append(texto)
+            comando_limpio = texto.replace("/pc", "").strip()
+            cola_comandos_pc.append(comando_limpio)
             bot.reply_to(message, "Ejecutando la acción en su computadora, Alejandro...")
             return
         else:
@@ -131,12 +142,18 @@ def manejar_mensajes(message):
     if message.text and message.text.lower().startswith("crea un archivo"):
         try:
             partes = message.text.split("con")
-            nombre = partes[0].replace("crea un archivo llamado", "").strip()
+            nombre = partes[0].lower().replace("crea un archivo llamado", "").replace("crea un archivo", "").strip()
             contenido = partes[1].strip() if len(partes) > 1 else ""
             if not nombre: nombre = "documento_klara.txt"
-            with open(nombre, "w", encoding="utf-8") as f: f.write(contenido)
+            
+            with open(nombre, "w", encoding="utf-8") as f: 
+                f.write(contenido)
+            
             with open(nombre, 'rb') as doc_f:
                 bot.send_document(chat_id, doc_f, caption="Aquí tiene su archivo solicitado, Alejandro.")
+            
+            if os.path.exists(nombre):
+                os.remove(nombre)
             return
         except Exception as e:
             bot.reply_to(message, f"Alejandro, fallé al crear el archivo: {e}")
@@ -173,7 +190,7 @@ def manejar_mensajes(message):
             bot.reply_to(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA CON LLAMA 3.2 VISION EN GROQ)
+    # 3. FOTOS (VISIÓN AVANZADA)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -212,13 +229,13 @@ def manejar_mensajes(message):
             )
             texto_usuario = transcription.text
             
-            agregar_a_memoria("user", texto_usuario)
+            agregar_a_memoria(chat_id, "user", texto_usuario)
             chat_completion = client.chat.completions.create(
-                messages=memoria_telegram,
+                messages=obtener_memoria(chat_id),
                 model="llama-3.1-8b-instant"
             )
             respuesta = chat_completion.choices[0].message.content
-            agregar_a_memoria("assistant", respuesta)
+            agregar_a_memoria(chat_id, "assistant", respuesta)
             
             tts = gTTS(text=respuesta, lang='es', tld='com.mx')
             fp = io.BytesIO()
@@ -250,13 +267,13 @@ def manejar_mensajes(message):
             return
             
         try:
-            agregar_a_memoria("user", texto_usuario)
+            agregar_a_memoria(chat_id, "user", texto_usuario)
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
-                messages=memoria_telegram
+                messages=obtener_memoria(chat_id)
             )
             respuesta = completion.choices[0].message.content
-            agregar_a_memoria("assistant", respuesta)
+            agregar_a_memoria(chat_id, "assistant", respuesta)
             bot.reply_to(message, respuesta)
         except Exception as e:
             bot.reply_to(message, f"Alejandro, mis circuitos neuronales sufrieron un contratiempo: {e}")
