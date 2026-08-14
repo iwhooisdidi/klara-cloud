@@ -203,7 +203,7 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN DIRECTA OFICIAL VÍA GOOGLE GEMINI)
+    # 3. FOTOS (VISIÓN OFICIAL VÍA GOOGLE GEMINI 1.5 ESTABLE)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -217,8 +217,6 @@ def manejar_mensajes(message):
                 enviar_respuesta_segura(message, "Alejandro, falta la variable GEMINI_API_KEY configurada en Render.")
                 return
 
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
-            
             payload = {
                 "contents": [
                     {
@@ -234,18 +232,24 @@ def manejar_mensajes(message):
                     }
                 ]
             }
+
+            # Modelos estables de Google con soporte permanente
+            modelos_gemini = ["gemini-1.5-flash", "gemini-1.5-pro"]
+            respuesta_exitosa = False
             
-            res = requests.post(url, json=payload, timeout=30)
-            res_data = res.json()
+            for modelo in modelos_gemini:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={gemini_key}"
+                res = requests.post(url, json=payload, timeout=30)
+                res_data = res.json()
+                
+                if "candidates" in res_data and len(res_data["candidates"]) > 0:
+                    respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                    enviar_respuesta_segura(message, respuesta)
+                    respuesta_exitosa = True
+                    break
             
-            if "candidates" in res_data and len(res_data["candidates"]) > 0:
-                respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                enviar_respuesta_segura(message, respuesta)
-            elif "error" in res_data:
-                err_msg = res_data["error"].get("message", str(res_data["error"]))
-                enviar_respuesta_segura(message, f"Alejandro, la API de Google reportó un inconveniente: {err_msg}")
-            else:
-                enviar_respuesta_segura(message, f"Alejandro, respuesta no reconocida de Gemini: {res_data}")
+            if not respuesta_exitosa:
+                enviar_respuesta_segura(message, f"Alejandro, la API de Google devolvió un reporte: {res_data}")
                 
         except Exception as e:
             enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó una anomalía: {e}")
