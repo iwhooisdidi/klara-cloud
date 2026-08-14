@@ -203,7 +203,7 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN OFICIAL VÍA GOOGLE GEMINI 1.5 ESTABLE)
+    # 3. FOTOS (VISIÓN AVANZADA CON AUTODESCUBRIMIENTO DINÁMICO)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -233,12 +233,40 @@ def manejar_mensajes(message):
                 ]
             }
 
-            # Modelos estables de Google con soporte permanente
-            modelos_gemini = ["gemini-1.5-flash", "gemini-1.5-pro"]
+            # 1. Consulta dinámica a Google para obtener los modelos verdaderamente activos
+            modelos_validos = []
+            try:
+                list_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}", timeout=10)
+                list_data = list_res.json()
+                if "models" in list_data:
+                    for m in list_data["models"]:
+                        methods = m.get("supportedGenerationMethods", [])
+                        m_name = m.get("name", "")
+                        # Filtrar modelos Gemini que soportan generación de contenido
+                        if "generateContent" in methods and "gemini" in m_name.lower():
+                            modelos_validos.append(m_name)
+            except Exception:
+                pass
+
+            # Respaldos por si la lista dinámica no responde
+            if not modelos_validos:
+                modelos_validos = [
+                    "models/gemini-1.5-flash-latest",
+                    "models/gemini-1.5-flash-002",
+                    "models/gemini-2.0-flash-exp"
+                ]
+
             respuesta_exitosa = False
-            
-            for modelo in modelos_gemini:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={gemini_key}"
+            ultimo_reporte = ""
+
+            # 2. Probar los modelos activos devueltos por Google
+            for path_modelo in modelos_validos:
+                # Asegurar formato correcto de la URL
+                if not path_modelo.startswith("models/"):
+                    path_modelo = f"models/{path_modelo}"
+                    
+                url = f"https://generativelanguage.googleapis.com/v1beta/{path_modelo}:generateContent?key={gemini_key}"
+                
                 res = requests.post(url, json=payload, timeout=30)
                 res_data = res.json()
                 
@@ -247,9 +275,11 @@ def manejar_mensajes(message):
                     enviar_respuesta_segura(message, respuesta)
                     respuesta_exitosa = True
                     break
-            
+                elif "error" in res_data:
+                    ultimo_reporte = res_data["error"].get("message", str(res_data["error"]))
+
             if not respuesta_exitosa:
-                enviar_respuesta_segura(message, f"Alejandro, la API de Google devolvió un reporte: {res_data}")
+                enviar_respuesta_segura(message, f"Alejandro, la API de Google reportó: {ultimo_reporte}")
                 
         except Exception as e:
             enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó una anomalía: {e}")
