@@ -203,7 +203,7 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA CON DIAGNÓSTICO EXACTO)
+    # 3. FOTOS (VISIÓN DIRECTA OFICIAL VÍA GOOGLE GEMINI)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -212,62 +212,43 @@ def manejar_mensajes(message):
             
             caption_usuario = message.caption or "Analiza esta imagen al detalle respondiéndole a Alejandro con tu personalidad sarcástica e inteligente."
             
-            openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-            if not openrouter_key:
-                enviar_respuesta_segura(message, "Alejandro, no detecto la variable OPENROUTER_API_KEY configurada en el entorno.")
+            gemini_key = os.environ.get("GEMINI_API_KEY")
+            if not gemini_key:
+                enviar_respuesta_segura(message, "Alejandro, falta la variable GEMINI_API_KEY configurada en Render.")
                 return
 
-            headers = {
-                "Authorization": f"Bearer {openrouter_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://render.com",
-                "X-Title": "Klara AI"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+            
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": f"{SYSTEM_PROMPT}\n\nInstrucción de Alejandro: {caption_usuario}"},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": base64_image
+                                }
+                            }
+                        ]
+                    }
+                ]
             }
             
-            modelos_vision = [
-                "google/gemini-flash-1.5",
-                "qwen/qwen-2.5-vl-72b-instruct:free",
-                "google/gemini-2.0-flash-exp:free",
-                "meta-llama/llama-3.2-11b-vision-instruct"
-            ]
+            res = requests.post(url, json=payload, timeout=30)
+            res_data = res.json()
             
-            respuesta_exitosa = False
-            ultimo_error = "Sin detalles del error."
-            
-            for modelo in modelos_vision:
-                payload = {
-                    "model": modelo,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": [
-                            {"type": "text", "text": caption_usuario},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]}
-                    ]
-                }
-                
-                try:
-                    res = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=20)
-                    res_data = res.json()
-                    
-                    if "choices" in res_data and len(res_data["choices"]) > 0:
-                        respuesta = res_data["choices"][0]["message"]["content"]
-                        enviar_respuesta_segura(message, respuesta)
-                        respuesta_exitosa = True
-                        break 
-                    elif "error" in res_data:
-                        # Atrapa el mensaje de error que da la API
-                        ultimo_error = f"{modelo} dice: {res_data['error'].get('message', res_data['error'])}"
-                except Exception as e:
-                    ultimo_error = f"Error de conexión: {e}"
-                    continue 
-            
-            if not respuesta_exitosa:
-                # Te envía el error exacto a Telegram
-                enviar_respuesta_segura(message, f"Alejandro, la API de OpenRouter rechazó la imagen. El error exacto es:\n\n{ultimo_error}")
+            if "candidates" in res_data and len(res_data["candidates"]) > 0:
+                respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                enviar_respuesta_segura(message, respuesta)
+            elif "error" in res_data:
+                err_msg = res_data["error"].get("message", str(res_data["error"]))
+                enviar_respuesta_segura(message, f"Alejandro, la API de Google reportó un inconveniente: {err_msg}")
+            else:
+                enviar_respuesta_segura(message, f"Alejandro, respuesta no reconocida de Gemini: {res_data}")
                 
         except Exception as e:
-            enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó un fallo interno: {e}")
+            enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó una anomalía: {e}")
         return
         
     # 4. NOTAS DE VOZ (WHISPER + TTS)
