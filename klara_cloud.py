@@ -239,64 +239,76 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-   # 3. FOTOS (CORREGIDA Y BLINDADA)
+   # 3. FOTOS (VISIÓN AVANZADA CORREGIDA Y ESTABLE)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             
             # Compresión
-            img = Image.open(io.BytesIO(downloaded_file))
-            if img.mode != 'RGB': img = img.convert('RGB')
-            img.thumbnail((1024, 1024))
-            buffered = io.BytesIO()
-            img.save(buffered, format="JPEG", quality=85)
-            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            image = Image.open(io.BytesIO(downloaded_file))
+            image.thumbnail((1024, 1024))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+                
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=80)
+            base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
             
-            # Preparar contexto para la memoria
-            caption_usuario = message.caption or "Analiza esta imagen."
+            caption_usuario = message.caption or "Analiza esta imagen al detalle respondiéndole a Alejandro con tu personalidad sarcástica e inteligente."
             
-            # IMPORTANTE: Sanitización de la API KEY (Eliminar saltos de línea y espacios)
-            gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
-            
+            gemini_key = os.environ.get("GEMINI_API_KEY")
             if not gemini_key:
-                enviar_respuesta_segura(message, "Alejandro, la API KEY no está configurada o está vacía.")
+                enviar_respuesta_segura(message, "Alejandro, falta la variable GEMINI_API_KEY configurada en Render.")
                 return
 
-            # Payload para el modelo
             payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": f"{SYSTEM_PROMPT}\n\nPregunta/Contexto del usuario: {caption_usuario}"},
-                        {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
-                    ]
-                }]
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": f"{SYSTEM_PROMPT}\n\nInstrucción de Alejandro: {caption_usuario}"},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": base64_image
+                                }
+                            }
+                        ]
+                    }
+                ]
             }
 
-            # Modelo fijo para evitar errores de búsqueda dinámica
-            modelo_uso = "models/gemini-1.5-flash:generateContent"
-            url = f"https://generativelanguage.googleapis.com/v1beta/{modelo_uso}?key={gemini_key}"
+            # LISTA DE MODELOS ESTABLES (SIN CONSULTA DINÁMICA QUE GENERA ERRORES 404)
+            modelos_a_probar = ["gemini-2.0-flash", "gemini-1.5-flash"]
             
-            # Ejecución
-            res = requests.post(url, json=payload, timeout=20)
-            res_data = res.json()
-            
-            if "candidates" in res_data:
-                respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                
-                # REGISTRO EN MEMORIA: Guardamos lo que viste y lo que Klara analizó
-                # Esto soluciona que "olvide" la foto en el siguiente mensaje
-                contexto_foto = f"[Imagen enviada: {caption_usuario}. Análisis: {respuesta}]"
-                agregar_a_memoria(chat_id, "user", contexto_foto)
-                
-                enviar_respuesta_segura(message, respuesta)
-            else:
-                enviar_respuesta_segura(message, f"Error de API: {res_data}")
+            respuesta_exitosa = False
+            ultimo_reporte = ""
 
+            for modelo in modelos_a_probar:
+                # Construcción estricta de la URL: https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={gemini_key}"
+                
+                try:
+                    res = requests.post(url, json=payload, timeout=20)
+                    res_data = res.json()
+                    
+                    if "candidates" in res_data and len(res_data["candidates"]) > 0:
+                        respuesta = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                        enviar_respuesta_segura(message, respuesta)
+                        respuesta_exitosa = True
+                        break
+                    elif "error" in res_data:
+                        ultimo_reporte = res_data["error"].get("message", str(res_data["error"]))
+                except Exception as req_err:
+                    ultimo_reporte = str(req_err)
+                    continue
+
+            if not respuesta_exitosa:
+                enviar_respuesta_segura(message, f"Alejandro, mi procesador visual falló al conectar. Error: {ultimo_reporte}")
+                
         except Exception as e:
-            enviar_respuesta_segura(message, f"Fallo crítico en el módulo de visión: {str(e)}")
+            enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó una anomalía: {e}")
         return
-
     # 4. NOTAS DE VOZ (WHISPER + TTS)
     if message.content_type == 'voice':
         try:
