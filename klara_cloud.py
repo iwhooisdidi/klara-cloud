@@ -279,7 +279,7 @@ def manejar_mensajes(message):
             }
 
             # LISTA DE MODELOS ESTABLES (SIN CONSULTA DINÁMICA QUE GENERA ERRORES 404)
-            modelos_a_probar = ["gemini-2.0-flash", "gemini-1.5-flash"]
+            modelos_a_probar = ["gemini-2.0-flash", "gemini-flash-latest"]
             
             respuesta_exitosa = False
             ultimo_reporte = ""
