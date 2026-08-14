@@ -5,3 +5,4 @@ gtts
 pypdf
 python-docx
 duckduckgo-search
+Pillow
