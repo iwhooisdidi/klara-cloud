@@ -3,6 +3,7 @@ import threading
 import base64
 import io
 import time
+import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from groq import Groq
@@ -12,7 +13,7 @@ from pypdf import PdfReader
 from docx import Document
 from duckduckgo_search import DDGS
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE CREDENCIALES ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8675385836:AAGo1sEzmJo-Gub8N4QDjXOWv63hJANBr7U")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
@@ -26,20 +27,42 @@ memoria_telegram = [{"role": "system", "content": SYSTEM_PROMPT}]
 def agregar_a_memoria(rol, contenido):
     global memoria_telegram
     memoria_telegram.append({"role": rol, "content": contenido})
-    # Mantener el System Prompt (índice 0) y máximo los últimos 6 mensajes para evitar saturar los tokens
+    # Mantener el System Prompt (índice 0) y máximo los últimos 6 mensajes para evitar saturar tokens
     if len(memoria_telegram) > 7:
         memoria_telegram = [memoria_telegram[0]] + memoria_telegram[-6:]
 
-# --- SERVIDOR FANTASMA 24/7 PARA RENDER ---
-class HealthCheckHandler(BaseHTTPRequestHandler):
+# --- ESTADO DE LA PC Y PUENTE DE COMUNICACIÓN ---
+pc_ultima_conexion = 0
+cola_comandos_pc = []
+
+class CloudBridgeHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Klara Cloud is 24/7 online!")
+        global pc_ultima_conexion, cola_comandos_pc
+        
+        # 1. Tu PC le avisa a Render que está encendida
+        if self.path == '/heartbeat':
+            pc_ultima_conexion = time.time()
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+            
+        # 2. Tu PC le consulta a Render si hay órdenes físicas pendientes
+        elif self.path == '/poll':
+            pc_ultima_conexion = time.time()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            
+            comando = cola_comandos_pc.pop(0) if cola_comandos_pc else None
+            self.wfile.write(json.dumps({"command": comando}).encode('utf-8'))
+        else:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Klara Cloud is 24/7 online!")
 
 def iniciar_servidor_web():
     port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server = HTTPServer(('0.0.0.0', port), CloudBridgeHandler)
     server.serve_forever()
 
 threading.Thread(target=iniciar_servidor_web, daemon=True).start()
@@ -52,7 +75,7 @@ def buscar_en_internet(query):
             results = list(ddgs.text(query, max_results=3))
             if results:
                 return "\n".join([f"- {r['title']}: {r['href']} ({r.get('body', '')})" for r in results])
-    except Exception as e:
+    except Exception:
         pass
     return "No encontré resultados en la red, Alejandro."
 
@@ -79,24 +102,41 @@ def procesar_archivo(file_path, extension):
 
 @bot.message_handler(content_types=['text', 'document', 'photo', 'voice'])
 def manejar_mensajes(message):
+    global pc_ultima_conexion, cola_comandos_pc
     chat_id = message.chat.id
-    
+    texto = message.text or message.caption or ""
+
+    # Verificar si la PC de Alejandro se ha reportado en los últimos 15 segundos
+    pc_encendida = (time.time() - pc_ultima_conexion) < 15
+
+    # Detección de órdenes que requieren ejecutarse en la pantalla/sistema de la PC
+    es_orden_pc = any(k in texto.lower() for k in ["youtube", "video", "abre", "volumen", "pantalla", "minimiza"])
+
+    if es_orden_pc and message.content_type == 'text':
+        if pc_encendida:
+            cola_comandos_pc.append(texto)
+            bot.reply_to(message, "Enviando instrucción a su computadora, Alejandro...")
+            return
+        else:
+            bot.reply_to(message, "Alejandro, su computadora está apagada en este momento. No puedo ejecutar la acción en pantalla.")
+            return
+
     # 1. CREACIÓN DE ARCHIVOS
     if message.text and message.text.lower().startswith("crea un archivo"):
         try:
             partes = message.text.split("con")
             nombre = partes[0].replace("crea un archivo llamado", "").strip()
-            contenido = partes[1].strip()
+            contenido = partes[1].strip() if len(partes) > 1 else ""
             if not nombre: nombre = "documento_klara.txt"
             with open(nombre, "w", encoding="utf-8") as f: f.write(contenido)
             with open(nombre, 'rb') as doc_f:
-                bot.send_document(chat_id, doc_f, caption="Aquí tiene su archivo solicitado, señor.")
+                bot.send_document(chat_id, doc_f, caption="Aquí tiene su archivo solicitado, Alejandro.")
             return
         except Exception as e:
-            bot.reply_to(message, f"Señor, fallé al crear el archivo: {e}")
+            bot.reply_to(message, f"Alejandro, fallé al crear el archivo: {e}")
             return
 
-    # 2. PROCESAMIENTO DE DOCUMENTOS (PDF, DOCX, TXT) - SEGURO CONTRA LÍMITE DE TOKENS
+    # 2. PROCESAMIENTO DE DOCUMENTOS (PDF, DOCX, TXT)
     if message.content_type == 'document':
         try:
             file_info = bot.get_file(message.document.file_id)
@@ -113,7 +153,6 @@ def manejar_mensajes(message):
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
-            # Limitamos a 3,500 caracteres (~900 tokens) para garantizar que NUNCA rebase el límite de 6000 TPM
             prompt_doc = f"El usuario Alejandro me ha enviado el documento '{file_name}' con el siguiente contenido:\n\n{texto_extraido[:3500]}\n\nAnaliza este contenido, résumelo o responde a lo que se pide con tu estilo sarcástico e inteligente."
             
             completion = client.chat.completions.create(
@@ -125,7 +164,7 @@ def manejar_mensajes(message):
             )
             bot.reply_to(message, completion.choices[0].message.content)
         except Exception as e:
-            bot.reply_to(message, f"Señor, el volumen del documento excedió los parámetros seguros de la red: {e}")
+            bot.reply_to(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
     # 3. FOTOS (VISIÓN AVANZADA - QWEN)
@@ -150,7 +189,7 @@ def manejar_mensajes(message):
             )
             bot.reply_to(message, completion.choices[0].message.content)
         except Exception as e:
-            bot.reply_to(message, f"Señor, mi módulo de visión artificial experimentó una anomalía: {e}")
+            bot.reply_to(message, f"Alejandro, mi módulo de visión artificial experimentó una anomalía: {e}")
         return
 
     # 4. NOTAS DE VOZ (WHISPER + TTS)
@@ -183,7 +222,7 @@ def manejar_mensajes(message):
             
             bot.send_voice(chat_id, fp)
         except Exception as e:
-            bot.reply_to(message, f"Interferencia detectada en el canal de audio, señor: {e}")
+            bot.reply_to(message, f"Interferencia detectada en el canal de audio, Alejandro: {e}")
         return
 
     # 5. TEXTO Y BÚSQUEDA WEB EN TIEMPO REAL
@@ -214,10 +253,10 @@ def manejar_mensajes(message):
             agregar_a_memoria("assistant", respuesta)
             bot.reply_to(message, respuesta)
         except Exception as e:
-            bot.reply_to(message, f"Señor, mis circuitos neuronales sufrieron un contratiempo de tasa: {e}")
+            bot.reply_to(message, f"Alejandro, mis circuitos neuronales sufrieron un contratiempo: {e}")
 
 if __name__ == "__main__":
-    print("Iniciando Sistema Klara Definitivo 24/7...")
+    print("Iniciando Sistema Klara Definitivo 24/7 en Render...")
     bot.remove_webhook()
     while True:
         try:
