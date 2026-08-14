@@ -203,7 +203,7 @@ def manejar_mensajes(message):
             enviar_respuesta_segura(message, f"Alejandro, el volumen del documento excedió los parámetros seguros de la red: {e}")
         return
 
-    # 3. FOTOS (VISIÓN AVANZADA CON SISTEMA ANTI-CAÍDAS / FALLBACK)
+    # 3. FOTOS (VISIÓN AVANZADA CON DIAGNÓSTICO EXACTO)
     if message.content_type == 'photo':
         try:
             file_info = bot.get_file(message.photo[-1].file_id)
@@ -224,7 +224,6 @@ def manejar_mensajes(message):
                 "X-Title": "Klara AI"
             }
             
-            # Lista priorizada de modelos de visión multimodales en OpenRouter
             modelos_vision = [
                 "google/gemini-flash-1.5",
                 "qwen/qwen-2.5-vl-72b-instruct:free",
@@ -233,8 +232,8 @@ def manejar_mensajes(message):
             ]
             
             respuesta_exitosa = False
+            ultimo_error = "Sin detalles del error."
             
-            # Prueba cada modelo en orden hasta que uno responda con éxito
             for modelo in modelos_vision:
                 payload = {
                     "model": modelo,
@@ -255,15 +254,20 @@ def manejar_mensajes(message):
                         respuesta = res_data["choices"][0]["message"]["content"]
                         enviar_respuesta_segura(message, respuesta)
                         respuesta_exitosa = True
-                        break  # Petición completada, salimos del bucle
-                except Exception:
-                    continue  # Si un modelo falla, salta de inmediato al siguiente
+                        break 
+                    elif "error" in res_data:
+                        # Atrapa el mensaje de error que da la API
+                        ultimo_error = f"{modelo} dice: {res_data['error'].get('message', res_data['error'])}"
+                except Exception as e:
+                    ultimo_error = f"Error de conexión: {e}"
+                    continue 
             
             if not respuesta_exitosa:
-                enviar_respuesta_segura(message, "Alejandro, los servidores de visión externa no respondieron. Por favor, reintenta en unos segundos.")
+                # Te envía el error exacto a Telegram
+                enviar_respuesta_segura(message, f"Alejandro, la API de OpenRouter rechazó la imagen. El error exacto es:\n\n{ultimo_error}")
                 
         except Exception as e:
-            enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión artificial experimentó una anomalía: {e}")
+            enviar_respuesta_segura(message, f"Alejandro, mi módulo de visión experimentó un fallo interno: {e}")
         return
         
     # 4. NOTAS DE VOZ (WHISPER + TTS)
